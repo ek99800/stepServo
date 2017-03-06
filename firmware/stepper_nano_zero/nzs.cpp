@@ -441,10 +441,12 @@ void NZS::begin(void)
 	//start up the USB serial interface
 	//TODO check for power on USB before doing this...
 	SerialUSB.begin(SERIAL_BAUD);
-
-	//setup the serial port for syslog
 	Serial5.begin(SERIAL_BAUD);
+#ifdef UART_COOR
+	SysLogInit(&Serial5,LOG_DISABLED); //disable syslog to output coorditate
+#else
 	SysLogInit(&Serial5,LOG_DEBUG); //use SWO for the sysloging
+#endif
 
 	LOG("Power up!");
 
@@ -543,6 +545,22 @@ void NZS::begin(void)
 	LOG("SETUP DONE!");
 }
 
+static void printPos()
+{
+	float pos;
+	int32_t x,y;
+
+	pos=ANGLE_T0_DEGREES(stepperCtrl.getCurrentAngle());
+	x=int(pos);
+	y=abs((pos-x)*100);
+	if(x==23592960 || x==-23592960)
+	{
+		Serial5.println("0.00");
+	}else{
+		Serial5.println(String(x)+"."+String(y));
+	}
+}
+
 void NZS::loop(void)
 {
 	if (enableState != stepperCtrl.getEnable())
@@ -553,7 +571,9 @@ void NZS::loop(void)
 	commandsProcess(); //handle commands
 
 	Lcd.process();
-
+#ifdef UART_COOR
+	printPos();
+#endif
 
 	return;
 }

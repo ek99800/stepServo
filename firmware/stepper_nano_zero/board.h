@@ -20,6 +20,7 @@
 //define this if using the NEMA 23 10A hardware
 //#define NEMA_23_10A_HW
 
+#define UART_COOR//define this to use uart to always output coordinate, commit it to use uart to output syslog
 
 #define NZS_FAST_CAL // define this to use 32k of flash for fast calibration table
 #define NZS_FAST_SINE //uses 2048 extra bytes to implement faster sine tables
