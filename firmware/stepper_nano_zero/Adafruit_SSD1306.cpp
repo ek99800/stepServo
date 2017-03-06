@@ -202,6 +202,10 @@ bool Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {
   }
   else
   {
+    if(!Wire.available())
+    {
+      return false;
+    }
     // I2C Init
     Wire.begin();
 #ifdef __SAM3X8E__
@@ -227,11 +231,7 @@ bool Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {
 
   uint8_t ret;
   // Init sequence
-  ret=ssd1306_command(SSD1306_DISPLAYOFF);                    // 0xAE
-  if (ret != 0)
-  {
-	  return false;
-  }
+  ssd1306_command(SSD1306_DISPLAYOFF);                    // 0xAE
   ssd1306_command(SSD1306_SETDISPLAYCLOCKDIV);            // 0xD5
   ssd1306_command(0x80);                                  // the suggested ratio 0x80
 
