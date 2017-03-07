@@ -432,7 +432,8 @@ void validateAndInitNVMParams(void)
 
 void NZS::begin(void)
 {
-	int to=20;
+	//int to=20;
+	int to=1;
 	stepCtrlError_t stepCtrlError;
 
 	//set up the pins correctly on the board.
@@ -466,7 +467,7 @@ void NZS::begin(void)
 
 
 	Lcd.begin(&stepperCtrl);
-	Lcd.lcdShow("Misfit"," Tech", VERSION);
+	Lcd.lcdShow("StepServo"," Tech", VERSION);
 
 
 	LOG("command init!");

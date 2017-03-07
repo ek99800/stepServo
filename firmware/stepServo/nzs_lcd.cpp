@@ -33,7 +33,7 @@ void NZS_LCD::begin(StepperCtrl *ptrsCtrl)
 	displayEnabled=display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
 	if (false == displayEnabled)
 	{
-		WARNING("NO display found, LCD will not be used");
+		SerialUSB.println("NO display found, LCD will not be used");
 	}
 	Wire.setClock(800000);
 
@@ -73,7 +73,7 @@ void NZS_LCD::showSplash(void)
 	{
 		return;
 	}
-	lcdShow("Misfit"," Tech", VERSION);
+	lcdShow("StepServo"," Tech", VERSION);
 }
 
 
