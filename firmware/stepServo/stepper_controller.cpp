@@ -822,7 +822,7 @@ int64_t StepperCtrl::getCurrentLocation(void)
 
 }
 
-int64_t StepperCtrl::getCurrentAngle(void)
+long StepperCtrl::getCurrentAngle(void)
 {
 	int64_t x;
 	x=getCurrentLocation()-zeroAngleOffset;

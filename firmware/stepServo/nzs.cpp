@@ -548,18 +548,14 @@ void NZS::begin(void)
 
 static void printPos()
 {
-	float pos;
+	double pos;
 	int32_t x,y;
 
 	pos=ANGLE_T0_DEGREES(stepperCtrl.getCurrentAngle());
 	x=int(pos);
 	y=abs((pos-x)*100);
-	if(x==23592960 || x==-23592960)
-	{
-		Serial5.println("0.00");
-	}else{
-		Serial5.println(String(x)+"."+String(y));
-	}
+	Serial5.println(String(x)+"."+String(y));
+	SerialUSB.println(String(x)+"."+String(y));
 }
 
 void NZS::loop(void)

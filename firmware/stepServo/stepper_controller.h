@@ -134,7 +134,7 @@ class StepperCtrl
 		int32_t measureError(void);
 
 		//these two functions are compenstated by the zero offset
-		int64_t getCurrentAngle(void);
+		long getCurrentAngle(void);
 		int64_t getDesiredAngle(void);
 
 		void move(int dir, uint16_t steps); //forces motor to move even if feedback controller is turned off.
