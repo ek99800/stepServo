@@ -204,6 +204,14 @@ bool Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {
   {
     // I2C Init
     Wire.begin();
+    byte test_error_addr=0x01;
+
+    Wire.beginTransmission(test_error_addr);
+    byte error = Wire.endTransmission();
+    if(error==0)
+    {
+      return false;
+    }
 
 #ifdef __SAM3X8E__
     // Force 400 KHz I2C, rawr! (Uses pins 20, 21 for SDA, SCL)
