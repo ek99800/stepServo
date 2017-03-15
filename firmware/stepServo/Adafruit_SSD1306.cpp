@@ -34,7 +34,7 @@ All text above, and the splash screen below must be included in any redistributi
 #include <SPI.h>
 #include "Adafruit_GFX.h"
 #include "Adafruit_SSD1306.h"
-
+#include "board.h"
 // the memory buffer for the LCD
 
 static uint8_t buffer[SSD1306_LCDHEIGHT * SSD1306_LCDWIDTH / 8] = {
@@ -210,7 +210,11 @@ bool Adafruit_SSD1306::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {
     byte error = Wire.endTransmission();
     if(error==0)
     {
+      SerialUSB.println("no lcd scan!");
       return false;
+    }
+    else{
+      SerialUSB.println("lcd scan");
     }
 
 #ifdef __SAM3X8E__
