@@ -17,7 +17,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <Wire.h>
-
+#include "board.h"
 
 #ifndef DISABLE_LCD
 void NZS_LCD::begin(StepperCtrl *ptrsCtrl)
@@ -528,10 +528,10 @@ void NZS_LCD::updateLCD(void)
 
 		if (K==1)
 		{
-			sprintf(str[2],"%03d.%01uKdeg", x,y);
+			sprintf(str[2],"%03d.%02dKdeg", int(x),int(y));
 		}else
 		{
-			sprintf(str[2],"%03d.%01udeg", x,y);
+			sprintf(str[2],"%03d.%02ddeg", int(x),int(y));
 		}
 		str[0][10]='\0';
 		str[1][10]='\0';

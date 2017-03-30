@@ -328,7 +328,7 @@ static  menuItem_t MenuCal[] {
 
 
 
-//this function is called on the rising edge of a step from external device
+//this f unction is called on the rising edge of a step from external device
 static void stepInput(void)
 {
 	static int dir;
@@ -555,7 +555,7 @@ static void printPos()
 	x=int(pos);
 	y=abs((pos-x)*100);
 	Serial5.println(String(x)+"."+String(y));
-	SerialUSB.println(String(x)+"."+String(y));
+	//SerialUSB.println(String(x)+"."+String(y));
 }
 
 void NZS::loop(void)
