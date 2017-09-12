@@ -569,7 +569,7 @@ void NZS::loop(void)
 
 	Lcd.process();
 #ifdef UART_COOR
-	printPos();
+	//printPos();
 #endif
 
 	return;
