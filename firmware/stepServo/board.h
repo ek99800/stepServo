@@ -14,13 +14,20 @@
 
 #include <Arduino.h>
 
-//define this if you are using the Mechaduino
+//uncomment this if you are using the Mechaduino hardware
 //#define MECHADUINO_HARDWARE
 
-//define this if using the NEMA 23 10A hardware
+
+//uncomment the follow lines if using the NEMA 23 10A hardware
 //#define NEMA_23_10A_HW
 
-#define UART_COOR//define this to use uart to always output coordinate, commit it to use uart to output syslog
+//uncomment the following if the board uses the A5995 driver (NEMA 23 3.2A boards)
+//#define A5995_DRIVER
+
+//The March 21 2017 NEMA 17 Smart Stepper has changed some pin outs
+// A1 was changed to read motor voltage, hence SW4 is now using D4
+// comment out this next line if using the older hardware
+//#define NEMA17_SMART_STEPPER_3_21_2017
 
 #define NZS_FAST_CAL // define this to use 32k of flash for fast calibration table
 #define NZS_FAST_SINE //uses 2048 extra bytes to implement faster sine tables
@@ -28,15 +35,19 @@
 
 #define NZS_AS5047_PIPELINE //does a pipeline read of encoder, which is slightly faster
 
+#define NZS_CONTROL_LOOP_HZ (6000) //update rate of control loop
 
-#define NZS_CONTROL_LOOP_HZ (6000) //update rate of control loop, this should be limited to less than 5k
-
-#define NZS_MAX_VELOCITY_AVG  (100) // number contol loop samples to average maximum velocity.
 
 #define NZS_LCD_ABSOULTE_ANGLE  //define this to show angle from zero in positive and negative direction
 								// for example 2 rotations from start will be angle of 720 degrees
 
-#define VERSION "FW: 0.09" //this is what prints on LCD during splash screen
+//#define ENABLE_PHASE_PREDICTION //this enables prediction of phase at high velocity to increase motor speed
+								//as of FW0.11 it is considered development only
+
+#define VERSION "FW: 0.22" //this is what prints on LCD during splash screen
+
+//Define this to allow command out serial port, else hardware serial is debug log
+//#define CMD_SERIAL_PORT
 
 #define SERIAL_BAUD (115200) //baud rate for the serial ports
 
@@ -54,7 +65,7 @@
  *   0.04
  *   0.05 added different modes added support for mechaduino
  *   0.06 added time out pipeline read, add some error logging on encoder failure for mechaduino
- *   0.07 many cahnges including
+ *   0.07 many changes including
  *   	- fixed error on display when doing a move 99999
  *   	- added velocity and position PID modes
  *   	- fixed LCD menu and put LCD code in own file
@@ -74,7 +85,40 @@
  *	 	- added the option to the move command to move at a constant RPM
  *	 	- Added the setzero command to zero the relative location of motor
  *	 	- Added the stop command to stop the planner based moves.
+ *	 0.10
+ *	 	-Fixed bug in switching control mode to 3
+ *	 0.11
+ *	    - Fixed bug where output current was half of what it should have been (sine.h)
+ *	    - Added #define for phase predictive advancement
+ *	    - Changed calibration to be done with one coil/phase on
+ *	    - Added smoothing for calibration
+ *	    - Continue to work on the Fet Driver code.
+ *	0.12
+ *		- Continue to work on the FET driver code
+ *		- fixed a constant issue with the DAC for the A4954 driver
+ *		- added command for setting the operational mode of the enable pin
+ *		- added the start of the A5995 driver.
+ *	0.13
+ *		- Added delay in for the 0.9 degree motor calibration and testing
+ *		- changed calibration to move 1/2 step at time as it was causing problems on A5995 due to current ramp down
+ *	0.14  	- Added in data logging
+ *		- Averaged the encoder when the motor is stationary to reduce noise/vibrations
+ *  	0.15 - Fixed some fet driver code
+ *  	 	- Added support for the NEMA17 smart stepper
+ *  	 	- Fixed RPM display bug on the LCD
+ * 	0.16 - Added support for enable and error pins on the 3-21-2017 hardware
  *
+ *	0.17 - Added the ability for the command line to go over the hardwired serial port
+ *		 - Fixed a bug where step and direction pin were setup as pulled down pins
+ *		    which could cause false stepping in nosiey environments
+ * 	0.18 - Added support for EEPROM writting of last location during brown out - currently brown out is too fast to write
+ * 	     - Added commands to support reading and restoring location from eeprom
+ * 	     - Check for pull up on SDA/SCL before doing a I2C read as that SERCOM driver has not time outs and locks.
+ * 	     - Added faster detection of USB not being plugged in, reduces power up time with no USB
+ * 	0.19 - removed debug information in the ssd1306 driver which caused LCD not always to be found
+ *	0.20 - Fixed bug in calibration, thanks to Oliver E.
+ *	0.21 - Fixed issues compiling for mechaduino, including disabling LCD for MEchaduino
+ *	0.22 - Added home command
  */
 
 
@@ -108,18 +152,20 @@ typedef enum {
 //TCC0 can be used as PWM for the input pins on the A4954
 //D0 step input could use TCC1 or TCC0 if not used
 //TC5 is use for timing the control loop
+//TC3 is used for planner tick
 
 // ******** TIMER USAGE NEMA23 10A versions ************
-//TCC1 is used for DAC PWM to the comparators
 //TCC0 PWM for the FET IN pins
 //D10 step input could use TC3 or TCC0 if not used
 //TC5 is use for timing the control loop
+//TC3 is used for planner tick
 
 
 
 //mechaduio and Arduino Zero has defined serial ports differently than NZS
 #ifdef MECHADUINO_HARDWARE
 #warning "Compiling source for Mechaduino NOT NZS"
+#define DISABLE_LCD
 #define Serial5 Serial 
 #else
 #define SerialUSB Serial
@@ -134,9 +180,30 @@ typedef enum {
 
 #ifdef MECHADUINO_HARDWARE
 #define PIN_ERROR 		(19)  //analogInputToDigitalPin(PIN_A5))
+#else //not Mechaduino hardware
+#ifdef NEMA17_SMART_STEPPER_3_21_2017
+#define PIN_SW1		(19)//analogInputToDigitalPin(PIN_A5))
+#define PIN_SW3		(14)//analogInputToDigitalPin(PIN_A0))
+#define PIN_SW4		(2)//D2
+#define PIN_ENABLE	(10)
+#define PIN_ERROR	(3)
 #else
+#define PIN_SW1		(19)//analogInputToDigitalPin(PIN_A5))
+#define PIN_SW3		(14)//analogInputToDigitalPin(PIN_A0))
+#define PIN_SW4		(15)//analogInputToDigitalPin(PIN_A1))
 #define PIN_ERROR		(10)
+#define PIN_ENABLE  (3)
 #endif
+
+#endif
+
+#ifdef A5995_DRIVER
+#define PIN_ENABLE	(3)
+#endif
+
+#define PIN_SCL (21)
+#define PIN_SDA (20)
+#define PIN_USB_PWR (38) // this pin is high when usb is connected
 
 #define PIN_AS5047D_CS  (16)//analogInputToDigitalPin(PIN_A2))
 #ifndef MECHADUINO_HARDWARE
@@ -146,10 +213,10 @@ typedef enum {
 //these pins use the TIMER in the A4954 driver
 // changing the pin definitions here may require changes in the A4954.cpp file
 
-#define PIN_FET_IN1		(5)
-#define PIN_FET_IN2		(6)
-#define PIN_FET_IN3		(7)
-#define PIN_FET_IN4		(2)
+#define PIN_FET_IN1		(5) //PA15 TC3/WO[1] TCC0/WO[5]1
+#define PIN_FET_IN2		(6) //PA20 TC7/W0[0] TCC0/WO[6]2
+#define PIN_FET_IN3		(7) //PA21 TC7/WO[1] TCC0/WO[7]3
+#define PIN_FET_IN4		(2) //PA14 TC3/W0[0] TCC0/WO[4] 0
 #define PIN_FET_VREF1	(4)
 #define PIN_FET_VREF2	(3)
 #define PIN_FET_ENABLE		(12)
@@ -157,20 +224,27 @@ typedef enum {
 #define ISENSE_FET_A	 (17) //analogInputToDigitalPin(PIN_A3)
 #define ISENSE_FET_B	 (8)
 //Comparators analog inputs
-#define COMP_FET_A		 (18)//analogInputToDigitalPin(PIN_A4))
-#define COMP_FET_B		 (9)
+//#define COMP_FET_A		 (18)//analogInputToDigitalPin(PIN_A4))
+//#define COMP_FET_B		 (9)
 
 
-
+//these are the pins used on the A5995 driver
+#define PIN_A5995_ENABLE1 	(2) //PA14
+#define PIN_A5995_ENABLE2 	(18) //PA05  analogInputToDigitalPin(PIN_A4))
+#define PIN_A5995_MODE1 	(8) //PA06 TCC1 WO[0]
+#define PIN_A5995_MODE2 	(7)	//PA21 TCC0 WO[4] //3
+#define PIN_A5995_PHASE1 	(6)	//PA20 TCC0 WO[6] //2
+#define PIN_A5995_PHASE2 	(5) //PA15 TCC0 W0[5] //1
+#define PIN_A5995_VREF1		(4) //PA08
+#define PIN_A5995_VREF2		(9) //PA07
+#define PIN_A5995_SLEEPn	(25) //RXLED
 
 #ifndef MECHADUINO_HARDWARE
 #define PIN_YELLOW_LED  (8)
 #endif
 
 
-#define PIN_SW1		(19)//analogInputToDigitalPin(PIN_A1))
-#define PIN_SW3		(14)//analogInputToDigitalPin(PIN_A0))
-#define PIN_SW4		(15)//analogInputToDigitalPin(PIN_A5))
+
 
 #ifdef NEMA_23_10A_HW
 #undef PIN_YELLOW_LED
@@ -198,10 +272,13 @@ typedef enum {
 
 #define GPIO_LOW(pin) {PORT->Group[g_APinDescription[(pin)].ulPort].OUTCLR.reg = (1ul << g_APinDescription[(pin)].ulPin);}
 #define GPIO_HIGH(pin) {PORT->Group[g_APinDescription[(pin)].ulPort].OUTSET.reg = (1ul << g_APinDescription[(pin)].ulPin);}
+#define GPIO_OUTPUT(pin) {PORT->Group[g_APinDescription[(pin)].ulPort].PINCFG[g_APinDescription[(pin)].ulPin].reg &=~(uint8_t)(PORT_PINCFG_INEN) ;  PORT->Group[g_APinDescription[(pin)].ulPort].DIRSET.reg = (uint32_t)(1<<g_APinDescription[(pin)].ulPin) ;}
 
-#define GPIO_OUTPUT(pin) {PORT->Group[g_APinDescription[(pin)].ulPort].PINCFG[g_APinDescription[(pin)].ulPin].reg&=~(uint8_t)(PORT_PINCFG_INEN) ;  PORT->Group[g_APinDescription[(pin)].ulPort].DIRSET.reg = (uint32_t)(1<<g_APinDescription[(pin)].ulPin) ;}
+#define PIN_GPIO_OUTPUT(pin) {PORT->Group[g_APinDescription[(pin)].ulPort].PINCFG[g_APinDescription[(pin)].ulPin].reg &=~(uint8_t)(PORT_PINCFG_INEN | PORT_PINCFG_PMUXEN) ;  PORT->Group[g_APinDescription[(pin)].ulPort].DIRSET.reg = (uint32_t)(1<<g_APinDescription[(pin)].ulPin) ;}
 
-
+#define PIN_GPIO(pin) {PORT->Group[g_APinDescription[(pin)].ulPort].PINCFG[g_APinDescription[(pin)].ulPin].reg &=~(uint8_t)(PORT_PINCFG_INEN | PORT_PINCFG_PMUXEN);}
+#define GPIO_READ(ulPin) {(PORT->Group[g_APinDescription[ulPin].ulPort].IN.reg & (1ul << g_APinDescription[ulPin].ulPin)) != 0}
+#define PIN_PERIPH(pin) {PORT->Group[g_APinDescription[(pin)].ulPort].PINCFG[g_APinDescription[(pin)].ulPin].reg |= PORT_PINCFG_PMUXEN;}
 //sets up the pins for the board
 static void boardSetupPins(void)
 {
@@ -212,9 +289,12 @@ static void boardSetupPins(void)
 	pinMode(PIN_SW4, INPUT_PULLUP);
 #endif
 
-	pinMode(PIN_STEP_INPUT, INPUT_PULLDOWN);
-	pinMode(PIN_DIR_INPUT, INPUT_PULLDOWN);
+	pinMode(PIN_STEP_INPUT, INPUT);
+	pinMode(PIN_DIR_INPUT, INPUT);
 
+#ifdef PIN_ENABLE
+	pinMode(PIN_ENABLE, INPUT_PULLUP); //default error pin as enable pin with pull up
+#endif
 	pinMode(PIN_ERROR, INPUT_PULLUP); //default error pin as enable pin with pull up
 
 	pinMode(PIN_AS5047D_CS,OUTPUT);
@@ -275,9 +355,33 @@ static void inline RED_LED(bool state)
 #define MAX(a,b) (((a)>(b))?(a):(b))
 #define ABS(a) (((a)>(0))?(a):(-(a)))
 #define DIV(x,y) (((y)>(0))?((x)/(y)):(4294967295))
+#define SIGN(x)  (((x) > 0) - ((x) < 0))
 
 #define NVIC_IS_IRQ_ENABLED(x) (NVIC->ISER[0] & (1 << ((uint32_t)(x) & 0x1F)))!=0
 
+
+static inline void SET_PIN_PERHERIAL(uint16_t ulPin,EPioType ulPeripheral)
+{
+	 if ( g_APinDescription[ulPin].ulPin & 1 ) // is pin odd?
+      {
+        uint32_t temp ;
+
+        // Get whole current setup for both odd and even pins and remove odd one
+        temp = (PORT->Group[g_APinDescription[ulPin].ulPort].PMUX[g_APinDescription[ulPin].ulPin >> 1].reg) & PORT_PMUX_PMUXE( 0xF ) ;
+        // Set new muxing
+        PORT->Group[g_APinDescription[ulPin].ulPort].PMUX[g_APinDescription[ulPin].ulPin >> 1].reg = temp|PORT_PMUX_PMUXO( ulPeripheral ) ;
+        // Enable port mux
+        PORT->Group[g_APinDescription[ulPin].ulPort].PINCFG[g_APinDescription[ulPin].ulPin].reg |= PORT_PINCFG_PMUXEN ;
+      }
+      else // even pin
+      {
+        uint32_t temp ;
+
+        temp = (PORT->Group[g_APinDescription[ulPin].ulPort].PMUX[g_APinDescription[ulPin].ulPin >> 1].reg) & PORT_PMUX_PMUXO( 0xF ) ;
+        PORT->Group[g_APinDescription[ulPin].ulPort].PMUX[g_APinDescription[ulPin].ulPin >> 1].reg = temp|PORT_PMUX_PMUXE( ulPeripheral ) ;
+        PORT->Group[g_APinDescription[ulPin].ulPort].PINCFG[g_APinDescription[ulPin].ulPin].reg |= PORT_PINCFG_PMUXEN ; // Enable port mux
+      }
+}
 
 #endif//__BOARD_H__
 

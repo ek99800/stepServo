@@ -17,33 +17,58 @@
 #include <string.h>
 #include <stdio.h>
 #include <Wire.h>
-#include "board.h"
+
 
 #ifndef DISABLE_LCD
 void NZS_LCD::begin(StepperCtrl *ptrsCtrl)
 {
+#ifndef MECHADUINO_HARDWARE
 	pinMode(PIN_SW1, INPUT_PULLUP);
 	pinMode(PIN_SW3, INPUT_PULLUP);
 	pinMode(PIN_SW4, INPUT_PULLUP);
+#endif
 	buttonState=0;
 
 	//we need access to the stepper controller
 	ptrStepperCtrl=ptrsCtrl; //save a pointer to the stepper controller
 
-	displayEnabled=display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+
+	ptrMenu=NULL;
+	menuIndex=0;
+	menuActive=false;
+	optionIndex=0;
+	ptrOptions=NULL;
+	displayEnabled=true;
+
+	//check that the SCL and SDA are pulled high
+	pinMode(PIN_SDA, INPUT);
+	pinMode(PIN_SCL, INPUT);
+	if (digitalRead(PIN_SDA)==0)
+	{
+		//pin is not pulled up
+		displayEnabled=false;
+	}
+	if (digitalRead(PIN_SCL)==0)
+	{
+		//pin is not pulled up
+		displayEnabled=false;
+	}
+
+	if (displayEnabled)
+	{
+		displayEnabled=display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+	}else
+	{
+		WARNING("SCL/SDA not pulled up");
+	}
 	if (false == displayEnabled)
 	{
-		SerialUSB.println("NO display found, LCD will not be used");
+		WARNING("NO display found, LCD will not be used");
 	}
 	Wire.setClock(800000);
 
 	//showSplash();
-	ptrMenu=NULL;
-	menuIndex=0;
-	menuActive=false;
 
-	optionIndex=0;
-	ptrOptions=NULL;
 }
 
 
@@ -73,7 +98,7 @@ void NZS_LCD::showSplash(void)
 	{
 		return;
 	}
-	lcdShow("StepServo"," Tech", VERSION);
+	lcdShow("Misfit"," Tech", VERSION);
 }
 
 
@@ -433,110 +458,126 @@ void NZS_LCD::updateLCD(void)
 	static int highRPM=0;
 	int32_t y,z,err;
 
-	int64_t lastAngle,deg;
+	static int64_t lastAngle,deg;
 	static int32_t RPM=0;
-	int32_t lasttime=0;
+	static int32_t lasttime=0;
 
 	bool state;
 	static int32_t dt=40;
 	static uint32_t t0=0;
 
+	static bool rpmDone=false;
+
 	if ((millis()-t0)>500)
 	{
-		t0=millis();
-		int64_t x,d;
 
-		//LOG("loop time is %dus",ptrStepperCtrl->getLoopTime());
+		int32_t x,d;
 
-
-		lastAngle=ptrStepperCtrl->getCurrentAngle();
-		lasttime=millis();
-		delay(dt);
-		deg=ptrStepperCtrl->getCurrentAngle();
-		y=millis()-lasttime;
-		err=ptrStepperCtrl->getLoopError();
-
-
-		d=(int64_t)(lastAngle-deg);
-
-		d=abs(d);
-//		if (d>ANGLE_STEPS/2)
-//		{
-//			d=d-ANGLE_STEPS/2;
-//		}
-
-		x=((int64_t)d*(60*1000UL))/((int64_t)y * ANGLE_STEPS);
-
-		lastAngle=deg;
-		RPM=x; //(7*RPM+x)/8; //average RPMs
-		if (RPM>500)
+		//do first half of RPM measurement
+		if (!rpmDone)
 		{
-			dt=10;
-		}
-		if (RPM<100)
-		{
-			dt=100;
-		}
-		//LOG("RPMs is %d, %d",x,d);
-		switch(ptrStepperCtrl->getControlMode())
-		{
-			case CTRL_SIMPLE:
-				sprintf(str[0], "%dRPM simp",RPM);
-				break;
-
-			case CTRL_POS_PID:
-				sprintf(str[0], "%dRPM pPID",RPM);
-				break;
-			case CTRL_POS_VELOCITY_PID:
-				sprintf(str[0], "%dRPM vPID",RPM);
-				break;
-
-			case CTRL_OPEN:
-				sprintf(str[0], "%dRPM open",RPM);
-				break;
-			case CTRL_OFF:
-				sprintf(str[0], "%dRPM off",RPM);
-				break;
-
+			//LOG("loop time is %dus",ptrStepperCtrl->getLoopTime());
+			lastAngle=ptrStepperCtrl->getCurrentAngle();
+			lasttime=millis();
+			rpmDone=true;
+			return;
 		}
 
+		//do the second half of rpm measurement and update LCD.
+		if (rpmDone && (millis()-lasttime)>(dt))
+		{
+			rpmDone=false;
+			deg=ptrStepperCtrl->getCurrentAngle();
+			y=millis()-lasttime;
+			err=ptrStepperCtrl->getLoopError();
 
-		err=(err*360*100)/(int32_t)ANGLE_STEPS;
-		//LOG("error is %d %d %d",err,(int32_t)ptrStepperCtrl->getCurrentLocation(),(int32_t)ptrStepperCtrl->getDesiredLocation());
-		z=(err)/100;
-		y=abs(err-(z*100));
+			t0=millis();
+			d=(int64_t)(lastAngle-deg);
 
-		sprintf(str[1],"%01d.%02d err", z,y);
+			d=abs(d);
+
+			x=0;
+			if (d>0)
+			{
+				x=((int64_t)d*(60*1000UL))/((int64_t)y * ANGLE_STEPS);
+			}
+
+			lastAngle=deg;
+			RPM=(int32_t)x; //(7*RPM+x)/8; //average RPMs
+			if (RPM>500)
+			{
+				dt=10;
+			}
+			if (RPM<100)
+			{
+				dt=100;
+			}
+			str[0][0]='\0';
+			//LOG("RPMs is %d, %d, %d",(int32_t)x,(int32_t)d,(int32_t)y);
+			switch(ptrStepperCtrl->getControlMode())
+			{
+				case CTRL_SIMPLE:
+					sprintf(str[0], "%dRPM simp",RPM);
+					break;
+
+				case CTRL_POS_PID:
+					sprintf(str[0], "%dRPM pPID",RPM);
+					break;
+
+				case CTRL_POS_VELOCITY_PID:
+					sprintf(str[0], "%dRPM vPID",RPM);
+					break;
+
+				case CTRL_OPEN:
+					sprintf(str[0], "%dRPM open",RPM);
+					break;
+				case CTRL_OFF:
+					sprintf(str[0], "%dRPM off",RPM);
+					break;
+				default:
+					sprintf(str[0], "error %u",ptrStepperCtrl->getControlMode());
+					break;
+
+			}
 
 
-		deg=ptrStepperCtrl->getDesiredAngle();
+			err=(err*360*100)/(int32_t)ANGLE_STEPS;
+			//LOG("error is %d %d %d",err,(int32_t)ptrStepperCtrl->getCurrentLocation(),(int32_t)ptrStepperCtrl->getDesiredLocation());
+			z=(err)/100;
+			y=abs(err-(z*100));
+
+			sprintf(str[1],"%01d.%02d err", z,y);
+
+
+			deg=ptrStepperCtrl->getDesiredAngle();
 
 #ifndef NZS_LCD_ABSOULTE_ANGLE
-		deg=deg & ANGLE_MAX; //limit to 360 degrees
+			deg=deg & ANGLE_MAX; //limit to 360 degrees
 #endif
 
-		deg=(deg*360*10)/(int32_t)ANGLE_STEPS;
-		int K=0;
-		if (abs(deg)>9999)
-		{
-			K=1;
-			deg=deg/1000;
-		}
+			deg=(deg*360*10)/(int32_t)ANGLE_STEPS;
+			int K=0;
+			if (abs(deg)>9999)
+			{
+				K=1;
+				deg=deg/1000;
+			}
 
-		x=(deg)/10;
-		y=abs(deg-(x*10));
+			x=(deg)/10;
+			y=abs(deg-(x*10));
 
-		if (K==1)
-		{
-			sprintf(str[2],"%03d.%02dKdeg", int(x),int(y));
-		}else
-		{
-			sprintf(str[2],"%03d.%02ddeg", int(x),int(y));
+			if (K==1)
+			{
+				sprintf(str[2],"%03d.%01uKdeg", x,y);
+			}else
+			{
+				sprintf(str[2],"%03d.%01udeg", x,y);
+			}
+			str[0][10]='\0';
+			str[1][10]='\0';
+			str[2][10]='\0';
+			lcdShow(str[0],str[1],str[2]);
 		}
-		str[0][10]='\0';
-		str[1][10]='\0';
-		str[2][10]='\0';
-		lcdShow(str[0],str[1],str[2]);
 	}
 }
 
